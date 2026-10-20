@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="思考計時">
+<style>
+  :root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  body { margin: 0; }
+  [hidden] { display: none !important; }
+</style>
+<title>桌遊思考計時器</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* Layout: one centered column. Setup = seconds + start. Play = giant clock + giant next button. */
+  :root {
+    --bg: #E8EDE9;
+    --surface: #F7F9F6;
+    --fg: #14211A;
+    --muted: #56675D;
+    --line: #C8D2CA;
+    --accent: #1E6A4E;
+    --on-accent: #F4FBF7;
+    --warn: #A8670C;
+    --crit: #BF3326;
+    --font-ui: "Noto Sans TC", system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    --font-num: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E1913; --surface: #16241C; --fg: #E6EFE8; --muted: #93A89A; --line: #2A3D32;
+      --accent: #4CC38A; --on-accent: #06180F; --warn: #E0A93B; --crit: #FF6B5B;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1913; --surface: #16241C; --fg: #E6EFE8; --muted: #93A89A; --line: #2A3D32;
+    --accent: #4CC38A; --on-accent: #06180F; --warn: #E0A93B; --crit: #FF6B5B;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-ui);
+    font-size: 16px;
+    line-height: 1.5;
+    padding-block: 16px 32px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .wrap { width: 100%; max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: 700; }
+  .label { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Setup */
+  .secs-row { display: flex; align-items: stretch; gap: 8px; }
+  .step {
+    flex: 0 0 72px; min-height: 72px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); font-size: 28px; font-weight: 700;
+  }
+  .step:active { background: var(--line); }
+  .secs-input-wrap { flex: 1; min-width: 0; display: flex; align-items: baseline; justify-content: center; gap: 6px; }
+  #secs {
+    width: 100%; min-width: 0; border: 0; background: transparent; text-align: right;
+    font-family: var(--font-num); font-weight: 700; font-size: 96px; line-height: 1;
+    font-variant-numeric: tabular-nums; padding: 0; -moz-appearance: textfield;
+  }
+  #secs::-webkit-outer-spin-button, #secs::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .unit { font-size: 18px; color: var(--muted); font-weight: 500; flex: 0 0 auto; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    min-height: 52px; padding: 0 18px; font-size: 18px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--bg); font-weight: 500; font-variant-numeric: tabular-nums;
+  }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  .btn-primary {
+    min-height: 88px; border: 0; border-radius: 10px;
+    background: var(--accent); color: var(--on-accent);
+    font-size: 30px; font-weight: 700;
+  }
+  .btn-primary:active { filter: brightness(0.92); }
+
+  /* Play */
+  .stage {
+    --state: var(--fg);
+    background: var(--surface);
+    background: color-mix(in srgb, var(--state) 9%, var(--surface));
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 28px 16px 28px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .stage[data-state="warn"] { --state: var(--warn); }
+  .stage[data-state="crit"], .stage[data-state="over"] { --state: var(--crit); }
+  .clock {
+    font-family: var(--font-num); font-weight: 700;
+    font-size: clamp(130px, 46vw, 220px); line-height: 0.95;
+    font-variant-numeric: tabular-nums; color: var(--state);
+  }
+  .stage[data-paused="true"] .clock { opacity: 0.35; }
+  .stage[data-state="over"] .clock { animation: flash 0.8s steps(2, jump-none) infinite; }
+  @keyframes flash { 50% { opacity: 0.25; } }
+  .meter { width: 100%; height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
+  .meter > i { display: block; height: 100%; width: 100%; background: var(--state); transform-origin: left center; }
+  .status { min-height: 24px; font-weight: 700; color: var(--state); }
+
+  .next {
+    min-height: 120px; border: 0; border-radius: 10px;
+    background: var(--accent); color: var(--on-accent);
+    font-size: 30px; font-weight: 700;
+  }
+  .next:active { filter: brightness(0.92); }
+
+  .bar { display: flex; gap: 8px; }
+  .bar button {
+    flex: 1; min-height: 44px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); font-weight: 500;
+  }
+  .bar button.armed { border-color: var(--crit); color: var(--crit); font-weight: 700; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stage[data-state="over"] .clock { animation: none; }
+  }
+  /* Play screen fills the whole viewport */
+  #play {
+    height: calc(100dvh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    min-height: 420px;
+    gap: 12px;
+  }
+  #play .stage { flex: 5 1 0; min-height: 0; padding: 12px; gap: 10px; }
+  .clock-box { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  #play .clock { font-size: 120px; display: inline-block; white-space: nowrap; line-height: 0.95; }
+  #play .meter { height: 14px; border-radius: 7px; }
+  #play .status { font-size: 28px; min-height: 36px; }
+  #play .next { flex: 3 1 0; min-height: 0; font-size: min(24vw, 13dvh); }
+  #play .bar { flex: 0 0 auto; }
+  #play .bar button { min-height: 68px; font-size: 24px; }
+</style>
+</head>
+<body>
+
+<main class="wrap">
+  <!-- Setup -->
+  <section id="setup" class="wrap" style="max-width:640px">
+    <h1>桌遊思考計時器</h1>
+    <div class="panel">
+      <span class="label">每次思考秒數</span>
+      <div class="secs-row">
+        <button class="step" id="dec" type="button" aria-label="減 5 秒">−5</button>
+        <div class="secs-input-wrap">
+          <input id="secs" type="number" inputmode="numeric" min="1" max="3600" aria-label="每次思考秒數">
+          <span class="unit">秒</span>
+        </div>
+        <button class="step" id="inc" type="button" aria-label="加 5 秒">+5</button>
+      </div>
+      <div class="presets" id="presets"></div>
+    </div>
+    <button class="btn-primary" id="start" type="button">開始</button>
+  </section>
+
+  <!-- Play -->
+  <section id="play" class="wrap" style="max-width:none" hidden>
+    <div class="stage" id="stage" data-state="ok" data-paused="false">
+      <div class="clock-box" id="clockBox"><div class="clock" id="clock" role="timer" aria-live="off">30</div></div>
+      <div class="meter"><i id="meter"></i></div>
+      <div class="status" id="status"></div>
+    </div>
+    <button class="next" id="next" type="button">下一位</button>
+    <div class="bar">
+      <button id="end" type="button">結束</button>
+      <button id="pause" type="button">暫停</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var PRESETS = [15, 30, 45, 60, 90, 120];
+  var KEY = 'board-think-timer-simple-v1';
+  var seconds = 30;
+  try {
+    var s = JSON.parse(localStorage.getItem(KEY));
+    if (s && typeof s.seconds === 'number') seconds = s.seconds;
+  } catch (e) {}
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ seconds: seconds })); } catch (e) {} }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var el = {
+    setup: $('setup'), play: $('play'), secs: $('secs'), presets: $('presets'),
+    dec: $('dec'), inc: $('inc'), start: $('start'), stage: $('stage'), clock: $('clock'),
+    meter: $('meter'), status: $('status'), next: $('next'), end: $('end'), pause: $('pause')
+  };
+
+  function clampSecs(v) {
+    v = Math.round(Number(v));
+    if (!isFinite(v) || v < 1) return 1;
+    return Math.min(v, 3600);
+  }
+  function renderPresets() {
+    el.presets.textContent = '';
+    PRESETS.forEach(function (n) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = n >= 60 && n % 60 === 0 ? n / 60 + ' 分鐘' : n + ' 秒';
+      b.setAttribute('aria-pressed', String(seconds === n));
+      b.addEventListener('click', function () { setSecs(n); });
+      el.presets.appendChild(b);
+    });
+  }
+  function setSecs(v) {
+    seconds = clampSecs(v);
+    el.secs.value = seconds;
+    renderPresets();
+    save();
+  }
+  el.secs.addEventListener('input', function () {
+    var n = Math.round(Number(el.secs.value));
+    if (isFinite(n) && n >= 1) { seconds = Math.min(n, 3600); renderPresets(); save(); }
+  });
+  el.secs.addEventListener('blur', function () { setSecs(el.secs.value); });
+  el.dec.addEventListener('click', function () { setSecs(seconds - 5); });
+  el.inc.addEventListener('click', function () { setSecs(seconds + 5); });
+
+  /* Sound */
+  var actx = null;
+  var silentEl = null;
+  function unlockIOS() {
+    // iPhone: the silent switch mutes Web Audio unless a "playback" audio session is active
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    try {
+      if (!silentEl) {
+        silentEl = new Audio('data:audio/wav;base64,UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUAGAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA');
+        silentEl.loop = true;
+        silentEl.setAttribute('playsinline', '');
+      }
+      var pr = silentEl.play();
+      if (pr && pr.catch) pr.catch(function () {});
+    } catch (e) {}
+  }
+  function ensureAudio() {
+    unlockIOS();
+    try {
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+    } catch (e) { actx = null; }
+  }
+  function beep(freq, dur, vol) {
+    if (!actx) return;
+    try {
+      var o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+      o.type = 'square';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol || 0.9, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+
+  /* Wake lock */
+  var wl = null;
+  function lockScreen() {
+    try {
+      if (navigator.wakeLock && navigator.wakeLock.request) {
+        navigator.wakeLock.request('screen').then(function (l) { wl = l; }, function () {});
+      }
+    } catch (e) {}
+  }
+  function unlockScreen() { try { if (wl) { wl.release(); wl = null; } } catch (e) {} }
+  document.addEventListener('visibilitychange', function () {
+    if (run && document.visibilityState === 'visible') lockScreen();
+  });
+
+  /* Timer */
+  var run = null, timer = null, endArmTimer = null;
+
+  function fmtClock(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000));
+    if (s >= 60) {
+      var m = Math.floor(s / 60), r = s % 60;
+      return m + ':' + (r < 10 ? '0' : '') + r;
+    }
+    return String(s);
+  }
+  function stateFor(ms) {
+    if (run.timedOut) return 'over';
+    if (ms <= 5000) return 'crit';
+    if (ms <= Math.min(10000, run.total * 0.33)) return 'warn';
+    return 'ok';
+  }
+  var fitLen = -1;
+  function fit() {
+    var box = $('clockBox');
+    var w = box.clientWidth, h = box.clientHeight;
+    if (!w || !h) return;
+    el.clock.style.fontSize = '100px';
+    var cw = el.clock.offsetWidth || 1;
+    var size = Math.min(100 * (w - 8) / cw, (h - 4) / 0.95);
+    el.clock.style.fontSize = Math.max(20, Math.floor(size)) + 'px';
+    fitLen = el.clock.textContent.length;
+  }
+  window.addEventListener('resize', function () { if (run) fit(); });
+  function render(ms) {
+    el.clock.textContent = fmtClock(ms);
+    if (el.clock.textContent.length !== fitLen) fit();
+    el.meter.style.transform = 'scaleX(' + Math.max(0, Math.min(1, ms / run.total)) + ')';
+    el.stage.setAttribute('data-state', stateFor(ms));
+    el.stage.setAttribute('data-paused', String(run.paused));
+    el.status.textContent = run.paused ? '已暫停' : (run.timedOut ? '時間到' : '');
+  }
+  function beginTurn() {
+    var now = Date.now();
+    run.deadline = now + run.total;
+    run.remaining = run.total;
+    run.lastSec = null;
+    run.timedOut = false;
+    run.paused = false;
+    el.pause.textContent = '暫停';
+    render(run.total);
+  }
+  function startGame() {
+    ensureAudio();
+    run = { total: clampSecs(seconds) * 1000 };
+    fitLen = -1;
+    beep(660, 0.15, 0.6);
+    el.setup.hidden = true;
+    el.play.hidden = false;
+    window.scrollTo(0, 0);
+    lockScreen();
+    beginTurn();
+    clearInterval(timer);
+    timer = setInterval(tick, 100);
+  }
+  function nextPlayer() {
+    if (!run) return;
+    ensureAudio();
+    beginTurn();
+    beep(520, 0.12, 0.6);
+    buzz(15);
+  }
+  function tick() {
+    if (!run || run.paused) return;
+    var rem = run.deadline - Date.now();
+    if (rem <= 0) {
+      if (!run.timedOut) {
+        run.timedOut = true;
+        beep(300, 1.2, 1);
+        buzz([300, 100, 300]);
+      }
+      run.remaining = 0;
+      render(0);
+      return;
+    }
+    run.remaining = rem;
+    var sec = Math.ceil(rem / 1000);
+    if (sec !== run.lastSec) {
+      if (sec <= 5 && run.lastSec !== null) beep(880, 0.18, 0.9);
+      run.lastSec = sec;
+    }
+    render(rem);
+  }
+  function togglePause() {
+    if (!run) return;
+    var now = Date.now();
+    if (run.paused) {
+      run.deadline = now + run.remaining;
+      run.paused = false;
+      el.pause.textContent = '暫停';
+    } else {
+      if (!run.timedOut) run.remaining = Math.max(0, run.deadline - now);
+      run.paused = true;
+      el.pause.textContent = '繼續';
+    }
+    render(run.remaining);
+  }
+  function endGame() {
+    clearInterval(timer);
+    timer = null;
+    run = null;
+    unlockScreen();
+    el.play.hidden = true;
+    el.setup.hidden = false;
+    window.scrollTo(0, 0);
+  }
+
+  el.start.addEventListener('click', startGame);
+  el.next.addEventListener('click', nextPlayer);
+  el.pause.addEventListener('click', togglePause);
+  el.end.addEventListener('click', function () {
+    if (el.end.classList.contains('armed')) {
+      clearTimeout(endArmTimer);
+      el.end.classList.remove('armed');
+      el.end.textContent = '結束';
+      endGame();
+      return;
+    }
+    el.end.classList.add('armed');
+    el.end.textContent = '再按一次結束';
+    endArmTimer = setTimeout(function () {
+      el.end.classList.remove('armed');
+      el.end.textContent = '結束';
+    }, 3000);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!run) return;
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'BUTTON')) return;
+    if (e.code === 'Space') { e.preventDefault(); nextPlayer(); }
+    else if (e.key === 'p' || e.key === 'P') { togglePause(); }
+  });
+
+  el.secs.value = seconds;
+  renderPresets();
+})();
+</script>
+
+</body>
+</html>
